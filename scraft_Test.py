@@ -32,7 +32,7 @@ def run(config):
     # curr_run = 'run%i' % run_num
     # run_dir = model_dir / curr_run
     # log_dir = run_dir / 'logs'
-    log_dir = 'checkpoints0602_2/'
+    log_dir = 'checkpoints0605_4/'
     run_dir = log_dir + 'logs/'
     # os.makedirs(log_dir)
     logger = SummaryWriter(str(log_dir))
@@ -49,9 +49,8 @@ def run(config):
                                   lr=config.lr,
                                   hidden_dim=config.hidden_dim)
     replay_buffer = ReplayBuffer(config.buffer_length, maddpg.nagents,
-                                 [obsp.shape[0] for obsp in env.observation_space],
-                                 [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
-                                  for acsp in env.action_space])
+                                 [obsp for obsp in env.observation_space],
+                                 [acsp for acsp in env.action_space])
     t = 0
 
     for ep_i in range(0, config.n_episodes, config.n_rollout_threads):
@@ -83,25 +82,30 @@ def run(config):
             # get actions as torch Variables
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
 
-           # add avail_agent
-            agent_actions=[]
+
+            actions=[]
+            agent_actions=np.zeros([len(env.action_space),env.action_space[0]])
+            # add avail_agent
+            avail_actions=np.array(env.get_avail_actions())
             for agent_i in range(len(torch_agent_actions)):
                 agent_action = env.get_avail_agent_actions(agent_i)
                 agent_action=[0 if agent_action[i]==0 else torch_agent_actions[agent_i].data.numpy()[0][i] for i in range(len(agent_action))]
-                agent_actions.append(np.argmax(agent_action))
+            # add argmax
+                actions.append(np.argmax(agent_action))
+            # new actions
+                agent_actions[agent_i][actions[agent_i]]=1
+
+
             # torch_agent_actions=[(if agent_avail_actions  for action in ac.data.numpy()) for ac in torch_agent_actions]
             # convert actions to numpy arrays
-            # add argmax
 
             # rearrange actions to be per environment
 
-            # new actions
-            actions = agent_actions
             # actions = [[ac[i] for ac in agent_actions] for i in range(config.n_rollout_threads)]
             next_obs, rewards, dones, infos = env.step(actions)
 
             stop = dones[0][0]
-            replay_buffer.push(obs, agent_actions, rewards, next_obs, dones)
+            replay_buffer.push(obs, agent_actions, rewards, next_obs, dones,avail_actions)
             obs = next_obs
             t += config.n_rollout_threads
             if (len(replay_buffer) >= config.batch_size and
@@ -147,7 +151,7 @@ if __name__ == '__main__':
     parser.add_argument("--n_training_threads", default=6, type=int)
     parser.add_argument("--buffer_length", default=int(1e6), type=int)
     parser.add_argument("--n_episodes", default=50000, type=int)
-    parser.add_argument("--episode_length", default=25, type=int)
+    #parser.add_argument("--episode_length", default=25, type=int)
     parser.add_argument("--steps_per_update", default=100, type=int)
     parser.add_argument("--batch_size",
                         default=1024, type=int,
@@ -156,7 +160,7 @@ if __name__ == '__main__':
     parser.add_argument("--init_noise_scale", default=0.3, type=float)
     parser.add_argument("--final_noise_scale", default=0.0, type=float)
     parser.add_argument("--save_interval", default=1000, type=int)
-    parser.add_argument("--hidden_dim", default=64, type=int)
+    parser.add_argument("--hidden_dim", default=128, type=int)
     parser.add_argument("--lr", default=0.01, type=float)
     parser.add_argument("--tau", default=0.01, type=float)
     parser.add_argument("--agent_alg",

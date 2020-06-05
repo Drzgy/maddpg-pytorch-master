@@ -92,7 +92,7 @@ class MADDPG(object):
             logger (SummaryWriter from Tensorboard-Pytorch):
                 If passed in, important quantities will be logged
         """
-        obs, acs, rews, next_obs, dones = sample
+        obs, acs, rews, next_obs, dones,avail_acs = sample
         curr_agent = self.agents[agent_i]
 
         curr_agent.critic_optimizer.zero_grad()
@@ -140,11 +140,19 @@ class MADDPG(object):
             # correct since it removes the assumption of a deterministic policy for
             # DDPG. Regardless, discrete policies don't seem to learn properly without it.
             curr_pol_out = curr_agent.policy(obs[agent_i])
+            curr_pol_out = F.softmax(curr_pol_out, dim=-1)
+            curr_pol_out=curr_pol_out.mul(avail_acs[agent_i])
+            curr_pol_out = F.softmax(curr_pol_out, dim=-1)
+            curr_pol_vf_in=curr_pol_out
+            # curr_pol_vf_in=torch.zeros(curr_pol_out.shape).cuda()
+            # for i in range(curr_pol_out.shape[0]):
+            #     curr_pol_vf_in[i][torch.argmax(curr_pol_out[i])]=1
+            # curr_pol_vf_in = gumbel_softmax(curr_pol_out.cpu(), hard=True).cuda()
 
-            curr_pol_vf_in = gumbel_softmax(curr_pol_out, hard=True)
         else:
             curr_pol_out = curr_agent.policy(obs[agent_i])
             curr_pol_vf_in = curr_pol_out
+
         if self.alg_types[agent_i] == 'MADDPG':
             all_pol_acs = []
             for i, pi, ob in zip(range(self.nagents), self.policies, obs):
@@ -241,20 +249,30 @@ class MADDPG(object):
                      atype in env.agent_types]
         for acsp, obsp, algtype in zip(env.action_space, env.observation_space,
                                        alg_types):
-            num_in_pol = obsp.shape[0]
+            if isinstance(obsp, Box):
+                num_in_pol = obsp.shape[0]
+            else:
+                num_in_pol=obsp
             if isinstance(acsp, Box):
                 discrete_action = False
                 get_shape = lambda x: x.shape[0]
+                num_out_pol = get_shape(acsp)
             else:  # Discrete
                 discrete_action = True
-                get_shape = lambda x: x.n
-            num_out_pol = get_shape(acsp)
+                num_out_pol = acsp
+
             if algtype == "MADDPG":
                 num_in_critic = 0
                 for oobsp in env.observation_space:
-                    num_in_critic += oobsp.shape[0]
+                    if isinstance(oobsp, Box):
+                        num_in_critic += oobsp.shape[0]
+                    else:
+                        num_in_critic +=oobsp
                 for oacsp in env.action_space:
-                    num_in_critic += get_shape(oacsp)
+                    if isinstance(oacsp, Box):
+                        num_in_critic += get_shape(oacsp)
+                    else:
+                        num_in_critic +=oacsp
             else:
                 num_in_critic = obsp.shape[0] + get_shape(acsp)
             agent_init_params.append({'num_in_pol': num_in_pol,
